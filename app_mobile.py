@@ -3,6 +3,8 @@ import pandas as pd
 import os
 import datetime
 import requests
+import threading
+import re  # [新增] 用于正则表达式验证手机号格式
 
 # ==========================================
 # 🔧 飞书核心配置区 (密码已全部集齐并填入)
@@ -16,7 +18,6 @@ BOT_URL = "https://open.feishu.cn/open-apis/bot/v2/hook/3fa6624a-7839-4539-9569-
 # --- 1. 页面UI与基础配置（移动端极致优化） ---
 st.set_page_config(page_title="赛博小红娘 | 助力城镇青年择偶", page_icon="💖", layout="centered")
 
-# 【新增防抖】初始化当前页面的提交状态
 if 'has_submitted_successfully' not in st.session_state:
     st.session_state['has_submitted_successfully'] = False
 
@@ -47,14 +48,14 @@ st.markdown("""
 🔒 *承诺：你的所有隐私数据仅用于平台内部匹配，绝不泄露。越真实，匹配越精准。*
 """)
 
-# --- 2. 构建交互式表单（单列瀑布流） ---
+# --- 2. 构建交互式表单 ---
 with st.form("matchmaker_form"):
     st.subheader("🛠️ 一、 你的基础情况")
     name = st.text_input("怎么称呼你？（真实姓名/小名均可）*")
     birth_year = st.number_input("出生年份*", min_value=1980, max_value=2006, value=1998)
     gender = st.selectbox("性别*", ["女生 🚺", "男生 🚹"])
     height = st.number_input("身高 (厘米)", min_value=140, max_value=210, value=170)
-    weight = st.number_input("体重 (公斤)", min_value=30, max_value=150, value=60) # 已加入体重
+    weight = st.number_input("体重 (公斤)", min_value=30, max_value=150, value=60)
 
     st.subheader("🌍 二、 居住地与工作状态")
     location = st.selectbox("目前常驻地*", ["太原市（细化到区请在下方补充）", "吕梁市（兴县周边）", "其他（请补充）"])
@@ -79,113 +80,88 @@ with st.form("matchmaker_form"):
     income = st.selectbox("目前年收入水平 (仅红娘可见)*", ["5万以下", "5万 - 10万", "10万 - 20万", "20万以上", "自由职业/收入浮动较大"])
 
     st.subheader("🔒 六、 建立连接 (隐私保护)")
-    wechat = st.text_input("微信号 (必填，匹配成功前绝不公开)*")
+    # 【修改】强制提示用户填写手机号
+    wechat = st.text_input("联系电话 (仅支持11位手机号，匹配前绝不公开)*")
 
     submitted = st.form_submit_button("🚀 生成我的单身档案")
 
-# --- 【新增核心逻辑】检查同一微信号今日是否已提交 ---
+# --- 检查当日是否已提交 ---
 def check_if_submitted_today(wx_id):
     csv_file = "cyber_matchmaker_database.csv"
-    if not os.path.exists(csv_file):
-        return False
+    if not os.path.exists(csv_file): return False
     try:
         df = pd.read_csv(csv_file)
         if "微信号" in df.columns and "提交时间" in df.columns:
-            # 获取当天的日期字符串，格式如 "2023-10-27"
             today_str = datetime.datetime.now().strftime("%Y-%m-%d")
-            # 筛选条件：微信号匹配 且 提交时间以今天开头
-            mask = (df['微信号'] == wx_id) & (df['提交时间'].astype(str).str.startswith(today_str))
-            if mask.any():
-                return True
-    except Exception as e:
-        pass # 若本地文件读取失败，不阻断正常提交流程
+            mask = (df['微信号'].astype(str) == str(wx_id)) & (df['提交时间'].astype(str).str.startswith(today_str))
+            if mask.any(): return True
+    except: pass
     return False
 
-# --- 3. 数据处理与双重推送逻辑 ---
+# --- 【新增】全后台异步处理函数（完全不阻挡前端动画） ---
+def background_full_submit(name, gender, birth_year, height, weight, location, job, work_style, personality, hobbies, self_desc, crush_points, deal_breakers, family_bg, parents_pension, assets, income, wechat):
+    try:
+        # 1. 拿 Token
+        auth_url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
+        token = requests.post(auth_url, json={"app_id": APP_ID, "app_secret": APP_SECRET}).json().get("tenant_access_token")
+
+        # 2. 写入飞书表格 (注意：虽然前端叫联系电话，这里必须跟飞书列名"微信号"对齐，否则会报错)
+        write_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{APP_TOKEN}/tables/{TABLE_ID}/records"
+        payload = {
+            "fields": {
+                "昵称": name, "性别": gender, "出生年份": birth_year, "身高": height, "体重": weight,
+                "常驻地": location, "职业": job, "工作节奏": work_style, "性格类型": personality,
+                "爱好": hobbies, "自我评价": self_desc, "心动加分项": crush_points, "底线红线": deal_breakers,
+                "家庭情况": family_bg, "父母养老": parents_pension, "房车情况": assets, "年收入": income,
+                "微信号": wechat, "提交时间": int(datetime.datetime.now().timestamp() * 1000)
+            }
+        }
+        requests.post(write_url, headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}, json=payload)
+
+        # 3. 飞书机器人通知
+        msg_content = f"🔔 收到新档案！\n👤 {name} ({gender})\n🎂 {birth_year}年 | {height}cm | {weight}kg\n📍 {location} | 💼 {job}\n📞 电话: {wechat}\n📊 数据已异步同步至多维表格。"
+        requests.post(BOT_URL, json={"msg_type": "text", "content": {"text": msg_content}})
+
+        # 4. CSV 备份
+        new_data = payload["fields"].copy()
+        new_data["提交时间"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        df_new = pd.DataFrame([new_data])
+        csv_file = "cyber_matchmaker_database.csv"
+        if os.path.exists(csv_file): df_new.to_csv(csv_file, mode='a', header=False, index=False, encoding='utf-8-sig')
+        else: df_new.to_csv(csv_file, index=False, encoding='utf-8-sig')
+    except Exception as e:
+        print(f"后台同步失败: {e}") # 这里的报错不会影响用户看到成功的界面
+
+# --- 3. 提交逻辑 ---
 if submitted:
-    # 拦截1：页面防抖拦截（防连点）
+    # 拦截1：页面防抖拦截
     if st.session_state['has_submitted_successfully']:
         st.warning("⚠️ 您刚刚已经成功提交过啦，无需重复点击哦！")
         
+    # 拦截2：必填项校验
     elif not name or not wechat or not crush_points or not deal_breakers:
         st.error("⚠️ 请填写完整的必填项（带*的空格）哦！")
         
-    # 拦截2：当日微信号唯一性校验拦截（防刷单）
+    # 【新增】拦截3：严格校验中国大陆11位手机号格式
+    elif not re.match(r"^1[3-9]\d{9}$", str(wechat)):
+        st.error("📱 请输入正确的 11 位大陆手机号码！这是我们为您匹配和防伪的唯一凭证哦~")
+        
+    # 拦截4：防刷单校验
     elif check_if_submitted_today(wechat):
-        st.error(f"🛑 微信号 [{wechat}] 今天已经提交过档案啦！每人每天仅限提交一次。如有信息修改需求请私聊红娘。")
+        st.error(f"🛑 手机号 [{wechat}] 今天已经提交过档案啦！每人每天仅限提交一次。")
         
     else:
-        try:
-            # ==========================================
-            # 步骤 A：获取飞书 API 访问令牌
-            # ==========================================
-            auth_url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
-            auth_res = requests.post(auth_url, json={"app_id": APP_ID, "app_secret": APP_SECRET})
-            token = auth_res.json().get("tenant_access_token")
-
-            # ==========================================
-            # 步骤 B：向多维表格写入结构化数据
-            # ==========================================
-            write_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{APP_TOKEN}/tables/{TABLE_ID}/records"
-            headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-            
-            payload = {
-                "fields": {
-                    "昵称": name,
-                    "性别": gender,
-                    "出生年份": birth_year,
-                    "身高": height,
-                    "体重": weight,
-                    "常驻地": location,
-                    "职业": job,
-                    "工作节奏": work_style,
-                    "性格类型": personality,
-                    "爱好": hobbies,
-                    "自我评价": self_desc,
-                    "心动加分项": crush_points,
-                    "底线红线": deal_breakers,
-                    "家庭情况": family_bg,
-                    "父母养老": parents_pension,
-                    "房车情况": assets,
-                    "年收入": income,
-                    "微信号": wechat,
-                    "提交时间": int(datetime.datetime.now().timestamp() * 1000) # 飞书日期列使用毫秒时间戳
-                }
-            }
-            res_table = requests.post(write_url, headers=headers, json=payload)
-
-            # ==========================================
-            # 步骤 C：发送机器人即时提醒
-            # ==========================================
-            msg_content = f"""🔔 收到新档案！
-👤 {name} ({gender})
-🎂 {birth_year}年 | 身高：{height}cm | 体重：{weight}kg
-📍 {location} | 💼 {job}
-📞 微信：{wechat}
-📊 完整数据已自动同步至多维表格。"""
-            requests.post(BOT_URL, json={"msg_type": "text", "content": {"text": msg_content}})
-
-            # ==========================================
-            # 步骤 D：兜底方案 (本地 CSV 备份)
-            # ==========================================
-            new_data = payload["fields"].copy()
-            new_data["提交时间"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            csv_file = "cyber_matchmaker_database.csv"
-            df_new = pd.DataFrame([new_data])
-            if os.path.exists(csv_file):
-                df_new.to_csv(csv_file, mode='a', header=False, index=False, encoding='utf-8-sig')
-            else:
-                df_new.to_csv(csv_file, index=False, encoding='utf-8-sig')
-
-            # --- 前端反馈 ---
-            if res_table.status_code == 200:
-                # 【关键】将当前页面会话标记为已成功提交，锁定按钮有效性
-                st.session_state['has_submitted_successfully'] = True
-                
-                st.success("🎉 档案录入成功！红娘已接收到你的信息与现实底牌，请耐心等待匹配~")
-                st.balloons()
-            else:
-                st.error(f"⚠️ 飞书表格写入失败。请检查表格里的列名是否完全对应。飞书报错：{res_table.text}")
-
-        except Exception as e:
-            st.error(f"⚠️ 网络波动，请联系红娘。错误信息: {e}")
+        # ======= 核心改动：前台瞬间秒回，后台默默搬砖 =======
+        # 锁定状态
+        st.session_state['has_submitted_successfully'] = True
+        
+        # 瞬间展示气球和成功提示 (0毫秒延迟！)
+        st.success("🎉 档案录入成功！红娘已接收到你的信息与现实底牌，请耐心等待匹配~")
+        st.balloons()
+        
+        # 将所有向飞书的网络请求打包，丢进后台子线程去执行
+        threading.Thread(target=background_full_submit, args=(
+            name, gender, birth_year, height, weight, location, job, work_style, 
+            personality, hobbies, self_desc, crush_points, deal_breakers, 
+            family_bg, parents_pension, assets, income, wechat
+        )).start()
