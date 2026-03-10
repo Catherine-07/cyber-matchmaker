@@ -80,22 +80,53 @@ with st.form("matchmaker_form"):
     income = st.selectbox("目前年收入水平 (仅红娘可见)*", ["5万以下", "5万 - 10万", "10万 - 20万", "20万以上", "自由职业/收入浮动较大"])
 
     st.subheader("🔒 六、 建立连接 (隐私保护)")
-    # 【已修改】更贴近相亲场景的文案
     wechat = st.text_input("联系方式 (微信同号的手机号)*")
 
     submitted = st.form_submit_button("🚀 生成我的单身档案")
 
-# --- 检查当日是否已提交 ---
+# --- 【已升级】直接去飞书多维表格云端校验 (绝对防漏) ---
 def check_if_submitted_today(wx_id):
-    csv_file = "cyber_matchmaker_database.csv"
-    if not os.path.exists(csv_file): return False
     try:
-        df = pd.read_csv(csv_file)
-        if "微信号" in df.columns and "提交时间" in df.columns:
-            today_str = datetime.datetime.now().strftime("%Y-%m-%d")
-            mask = (df['微信号'].astype(str) == str(wx_id)) & (df['提交时间'].astype(str).str.startswith(today_str))
-            if mask.any(): return True
-    except: pass
+        # 1. 获取飞书 Token
+        auth_url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
+        token = requests.post(auth_url, json={"app_id": APP_ID, "app_secret": APP_SECRET}).json().get("tenant_access_token")
+        
+        if not token: return False
+
+        # 2. 调用飞书“搜索记录”API，精准查找这个手机号
+        search_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{APP_TOKEN}/tables/{TABLE_ID}/records/search"
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        
+        payload = {
+            "filter": {
+                "conjunction": "and",
+                "conditions": [
+                    {
+                        "field_name": "微信号", 
+                        "operator": "is", 
+                        "value": [str(wx_id)]
+                    }
+                ]
+            }
+        }
+        res = requests.post(search_url, headers=headers, json=payload).json()
+        
+        # 3. 如果找到了，检查是不是今天提交的
+        items = res.get("data", {}).get("items", [])
+        if items:
+            # 获取今天凌晨 0 点的时间戳（毫秒）
+            today_start = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            today_start_ts = int(today_start.timestamp() * 1000)
+            
+            for item in items:
+                submit_time = item.get("fields", {}).get("提交时间", 0)
+                # 如果记录的提交时间大于今天凌晨 0 点，说明今天交过
+                if submit_time >= today_start_ts:
+                    return True 
+                    
+    except Exception as e:
+        print(f"飞书云端校验失败: {e}") 
+        
     return False
 
 # --- 全后台异步处理函数（完全不阻挡前端动画） ---
@@ -142,11 +173,11 @@ if submitted:
     elif not name or not wechat or not crush_points or not deal_breakers:
         st.error("⚠️ 请填写完整的必填项（带*的空格）哦！")
         
-    # 【已修改】拦截3：匹配报错文案
+    # 拦截3：匹配手机号校验 (防乱填)
     elif not re.match(r"^1[3-9]\d{9}$", str(wechat)):
         st.error("📱 请输入正确的 11 位手机号码（需微信同号）！这是我们为您匹配和防伪的唯一凭证哦~")
         
-    # 拦截4：防刷单校验
+    # 【已升级】拦截4：飞书云端防刷单校验
     elif check_if_submitted_today(wechat):
         st.error(f"🛑 手机号 [{wechat}] 今天已经提交过档案啦！每人每天仅限提交一次。")
         
@@ -162,4 +193,3 @@ if submitted:
             personality, hobbies, self_desc, crush_points, deal_breakers, 
             family_bg, parents_pension, assets, income, wechat
         )).start()
-
