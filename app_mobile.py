@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import os
 import datetime
+import requests
+import json
 
 # --- 1. 页面UI与基础配置（包含移动端极致优化） ---
 st.set_page_config(page_title="赛博小红娘 | 助力城镇青年择偶", page_icon="💖", layout="centered")
@@ -133,41 +135,79 @@ with st.form("matchmaker_form"):
     # 提交按钮
     submitted = st.form_submit_button("🚀 生成我的单身档案")
 
-# --- 3. 数据处理与保存逻辑 ---
+# --- 3. 数据处理与推送逻辑（飞书机器人接入） ---
 if submitted:
     if not name or not wechat or not crush_points or not deal_breakers:
         st.error("⚠️ 请填写完整的必填项（带*的空格）哦！")
     else:
-        # 组装数据字典
-        new_data = {
-            "提交时间": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "昵称": name,
-            "性别": gender,
-            "出生年份": birth_year,
-            "身高": height,
-            "常驻地": location,
-            "职业": job,
-            "工作节奏": work_style,
-            "性格类型": personality,
-            "爱好": hobbies,
-            "自我评价": self_desc,
-            "心动加分项": crush_points,
-            "底线红线": deal_breakers,
-            "家庭情况": family_bg,
-            "父母养老": parents_pension,
-            "房车情况": assets,
-            "年收入": income,
-            "微信号": wechat
+        # 飞书机器人 Webhook URL
+        FEISHU_WEBHOOK_URL = "https://open.feishu.cn/open-apis/bot/v2/hook/3fa6624a-7839-4539-9569-98e17f009f42"
+
+        # 1. 组装发给飞书的排版好的文本信息（相当于给你手机发的资料卡片）
+        msg_content = f"""🔔 收到新的单身档案！
+-----------------------
+👤 称呼：{name} ({gender})
+🎂 出生：{birth_year}年 | 身高：{height}cm
+📍 坐标：{location}
+💼 职业：{job} ({work_style})
+🧩 性格：{personality}
+🎨 爱好：{hobbies}
+💡 自评：{self_desc}
+-----------------------
+🎯 心动特质：{crush_points}
+🚫 绝对红线：{deal_breakers}
+-----------------------
+🧱 家庭情况：{family_bg} | 父母养老：{parents_pension}
+🚗 房产车产：{assets} | 年收入：{income}
+-----------------------
+📞 微信号：{wechat}
+⏰ 提交时间：{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}"""
+
+        # 2. 构建飞书 API 要求的请求格式
+        payload = {
+            "msg_type": "text",
+            "content": {
+                "text": msg_content
+            }
         }
 
-        # 保存为 CSV
-        csv_file = "cyber_matchmaker_database.csv"
-        df_new = pd.DataFrame([new_data])
-
-        if os.path.exists(csv_file):
-            df_new.to_csv(csv_file, mode='a', header=False, index=False, encoding='utf-8-sig')
-        else:
-            df_new.to_csv(csv_file, index=False, encoding='utf-8-sig')
-
-        st.success("🎉 档案录入成功！红娘已接收到你的信息与现实底牌，请耐心等待匹配~")
-        st.balloons()
+        # 3. 尝试发送数据给飞书，并同时在云端保留一份临时 CSV 备份
+        try:
+            # 发送请求给飞书
+            response = requests.post(FEISHU_WEBHOOK_URL, json=payload)
+            
+            # 同时将数据写入临时CSV作为备份
+            new_data = {
+                "提交时间": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "昵称": name,
+                "性别": gender,
+                "出生年份": birth_year,
+                "身高": height,
+                "常驻地": location,
+                "职业": job,
+                "工作节奏": work_style,
+                "性格类型": personality,
+                "爱好": hobbies,
+                "自我评价": self_desc,
+                "心动加分项": crush_points,
+                "底线红线": deal_breakers,
+                "家庭情况": family_bg,
+                "父母养老": parents_pension,
+                "房车情况": assets,
+                "年收入": income,
+                "微信号": wechat
+            }
+            csv_file = "cyber_matchmaker_database.csv"
+            df_new = pd.DataFrame([new_data])
+            if os.path.exists(csv_file):
+                df_new.to_csv(csv_file, mode='a', header=False, index=False, encoding='utf-8-sig')
+            else:
+                df_new.to_csv(csv_file, index=False, encoding='utf-8-sig')
+            
+            # 网页端显示成功提示及气球特效
+            st.success("🎉 档案录入成功！红娘已接收到你的信息与现实底牌，请耐心等待匹配~")
+            st.balloons()
+            
+        except Exception as e:
+            # 万一遇到极端网络问题导致发送失败的备用提示
+            st.error("⚠️ 数据提交遇到了一点小网络波动，请加红娘微信手动提交哦~")
