@@ -6,38 +6,62 @@ import datetime
 # --- 1. 页面UI与基础配置（包含移动端极致优化） ---
 st.set_page_config(page_title="赛博小红娘 | 助力城镇青年择偶", page_icon="💖", layout="centered")
 
-# 注入 CSS 魔法：隐藏英文提示，压榨留白，美化移动端按钮
+# 注入 终极CSS魔法：隐藏系统UI，修正字体，压榨留白，美化移动端按钮
 st.markdown("""
     <style>
-    /* 彻底隐藏输入框右下角的英文提示 */
+    /* 1. 隐藏顶部 GitHub 图标和菜单栏，看起来更像独立 App */
+    #MainMenu {visibility: hidden;}
+    header {visibility: hidden;}
+    
+    /* 隐藏底部 "Made with Streamlit" 水印 */
+    footer {visibility: hidden;}
+    
+    /* 2. 彻底隐藏输入框右下角的英文提示 */
     [data-testid="InputInstructions"] {
         display: none !important;
     }
-    /* 📱 移动端优化：压榨左右留白，让输入框尽量占满手机屏幕 */
+    
+    /* 3. 强制使用规整的系统默认字体，拒绝奇怪的手机手写体 */
+    html, body, [class*="css"] {
+        font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif !important;
+    }
+    
+    /* 4. 移除表单自带的灰色边框，释放手机屏幕空间 */
+    [data-testid="stForm"] {
+        border: none !important;
+        padding: 0 !important;
+    }
+    
+    /* 5. 📱 移动端优化：压榨左右留白，让输入框尽量占满手机屏幕 */
     .block-container {
-        padding-top: 2rem !important;
+        padding-top: 1rem !important;
         padding-bottom: 2rem !important;
         padding-left: 1rem !important;
         padding-right: 1rem !important;
     }
+    
     /* 📱 移动端优化：稍微放大单选框的上下间距，防止手指误触 */
     div[role="radiogroup"] {
         gap: 0.8rem;
     }
-    /* 美化提交按钮，变成全宽心动红大按钮，极具点击欲 */
-    div.stButton > button:first-child {
-        width: 100%; 
-        background-color: #ff4b4b; 
-        color: white;
-        border-radius: 8px;
-        height: 3rem;
-        font-size: 1.1rem;
-        font-weight: bold;
-        border: none;
+    
+    /* 6. 美化提交按钮，变成全宽心动红大按钮，极具点击欲 */
+    [data-testid="baseButton-formSubmit"] {
+        width: 100% !important;
+        background-color: #ff4b4b !important;
+        color: white !important;
+        border-radius: 8px !important;
+        height: 3.5rem !important;
+        font-size: 1.2rem !important;
+        font-weight: bold !important;
+        border: none !important;
+        margin-top: 1rem !important;
+        box-shadow: 0 4px 6px rgba(255, 75, 75, 0.2) !important;
     }
-    div.stButton > button:first-child:hover {
-        background-color: #ff3333;
-        color: white;
+    [data-testid="baseButton-formSubmit"]:active, 
+    [data-testid="baseButton-formSubmit"]:hover {
+        background-color: #ff3333 !important;
+        color: white !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -50,7 +74,7 @@ st.markdown("""
 🔒 *承诺：你的所有隐私数据仅用于平台内部匹配，绝不泄露。越真实，匹配越精准。*
 """)
 
-# --- 2. 构建交互式表单（全面取消并排，改为手机最舒服的单列瀑布流） ---
+# --- 2. 构建交互式表单（单列瀑布流） ---
 with st.form("matchmaker_form"):
     st.subheader("🛠️ 一、 你的基础情况")
     name = st.text_input("怎么称呼你？（真实姓名/小名均可）*")
