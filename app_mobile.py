@@ -16,6 +16,10 @@ BOT_URL = "https://open.feishu.cn/open-apis/bot/v2/hook/3fa6624a-7839-4539-9569-
 # --- 1. 页面UI与基础配置（移动端极致优化） ---
 st.set_page_config(page_title="赛博小红娘 | 助力城镇青年择偶", page_icon="💖", layout="centered")
 
+# 【新增防抖】初始化当前页面的提交状态
+if 'has_submitted_successfully' not in st.session_state:
+    st.session_state['has_submitted_successfully'] = False
+
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
@@ -79,10 +83,37 @@ with st.form("matchmaker_form"):
 
     submitted = st.form_submit_button("🚀 生成我的单身档案")
 
+# --- 【新增核心逻辑】检查同一微信号今日是否已提交 ---
+def check_if_submitted_today(wx_id):
+    csv_file = "cyber_matchmaker_database.csv"
+    if not os.path.exists(csv_file):
+        return False
+    try:
+        df = pd.read_csv(csv_file)
+        if "微信号" in df.columns and "提交时间" in df.columns:
+            # 获取当天的日期字符串，格式如 "2023-10-27"
+            today_str = datetime.datetime.now().strftime("%Y-%m-%d")
+            # 筛选条件：微信号匹配 且 提交时间以今天开头
+            mask = (df['微信号'] == wx_id) & (df['提交时间'].astype(str).str.startswith(today_str))
+            if mask.any():
+                return True
+    except Exception as e:
+        pass # 若本地文件读取失败，不阻断正常提交流程
+    return False
+
 # --- 3. 数据处理与双重推送逻辑 ---
 if submitted:
-    if not name or not wechat or not crush_points or not deal_breakers:
+    # 拦截1：页面防抖拦截（防连点）
+    if st.session_state['has_submitted_successfully']:
+        st.warning("⚠️ 您刚刚已经成功提交过啦，无需重复点击哦！")
+        
+    elif not name or not wechat or not crush_points or not deal_breakers:
         st.error("⚠️ 请填写完整的必填项（带*的空格）哦！")
+        
+    # 拦截2：当日微信号唯一性校验拦截（防刷单）
+    elif check_if_submitted_today(wechat):
+        st.error(f"🛑 微信号 [{wechat}] 今天已经提交过档案啦！每人每天仅限提交一次。如有信息修改需求请私聊红娘。")
+        
     else:
         try:
             # ==========================================
@@ -148,6 +179,9 @@ if submitted:
 
             # --- 前端反馈 ---
             if res_table.status_code == 200:
+                # 【关键】将当前页面会话标记为已成功提交，锁定按钮有效性
+                st.session_state['has_submitted_successfully'] = True
+                
                 st.success("🎉 档案录入成功！红娘已接收到你的信息与现实底牌，请耐心等待匹配~")
                 st.balloons()
             else:
@@ -155,5 +189,3 @@ if submitted:
 
         except Exception as e:
             st.error(f"⚠️ 网络波动，请联系红娘。错误信息: {e}")
-
-
