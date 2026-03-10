@@ -9,7 +9,7 @@ import requests
 # ==========================================
 APP_ID = "cli_a9253e6a3be6dbd1"
 APP_SECRET = "zLnbqkfszFKsRTjuH25JOdzqMbGQGZUO"
-APP_TOKEN = "FS7YbPxt8auvIHseslZcVN03nUh" 
+APP_TOKEN = "FS7YbPxt8auvIHsesIZcVN03nUh" 
 TABLE_ID = "tbls07Rnv0sHsQoV"
 BOT_URL = "https://open.feishu.cn/open-apis/bot/v2/hook/3fa6624a-7839-4539-9569-98e17f009f42"
 
@@ -155,4 +155,5 @@ if submitted:
 
         except Exception as e:
             st.error(f"⚠️ 网络波动，请联系红娘。错误信息: {e}")
+
 
