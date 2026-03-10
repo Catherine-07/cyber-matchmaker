@@ -4,7 +4,7 @@ import os
 import datetime
 import requests
 import threading
-import re  # [新增] 用于正则表达式验证手机号格式
+import re
 
 # ==========================================
 # 🔧 飞书核心配置区 (密码已全部集齐并填入)
@@ -80,8 +80,8 @@ with st.form("matchmaker_form"):
     income = st.selectbox("目前年收入水平 (仅红娘可见)*", ["5万以下", "5万 - 10万", "10万 - 20万", "20万以上", "自由职业/收入浮动较大"])
 
     st.subheader("🔒 六、 建立连接 (隐私保护)")
-    # 【修改】强制提示用户填写手机号
-    wechat = st.text_input("联系电话 (仅支持11位手机号，匹配前绝不公开)*")
+    # 【已修改】更贴近相亲场景的文案
+    wechat = st.text_input("联系方式 (备注：微信同号的手机号)*")
 
     submitted = st.form_submit_button("🚀 生成我的单身档案")
 
@@ -98,14 +98,14 @@ def check_if_submitted_today(wx_id):
     except: pass
     return False
 
-# --- 【新增】全后台异步处理函数（完全不阻挡前端动画） ---
+# --- 全后台异步处理函数（完全不阻挡前端动画） ---
 def background_full_submit(name, gender, birth_year, height, weight, location, job, work_style, personality, hobbies, self_desc, crush_points, deal_breakers, family_bg, parents_pension, assets, income, wechat):
     try:
         # 1. 拿 Token
         auth_url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
         token = requests.post(auth_url, json={"app_id": APP_ID, "app_secret": APP_SECRET}).json().get("tenant_access_token")
 
-        # 2. 写入飞书表格 (注意：虽然前端叫联系电话，这里必须跟飞书列名"微信号"对齐，否则会报错)
+        # 2. 写入飞书表格 (注意：虽然前端叫联系方式，后台依然写入"微信号"列保持兼容)
         write_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{APP_TOKEN}/tables/{TABLE_ID}/records"
         payload = {
             "fields": {
@@ -119,7 +119,7 @@ def background_full_submit(name, gender, birth_year, height, weight, location, j
         requests.post(write_url, headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}, json=payload)
 
         # 3. 飞书机器人通知
-        msg_content = f"🔔 收到新档案！\n👤 {name} ({gender})\n🎂 {birth_year}年 | {height}cm | {weight}kg\n📍 {location} | 💼 {job}\n📞 电话: {wechat}\n📊 数据已异步同步至多维表格。"
+        msg_content = f"🔔 收到新档案！\n👤 {name} ({gender})\n🎂 {birth_year}年 | {height}cm | {weight}kg\n📍 {location} | 💼 {job}\n📞 联系方式: {wechat}\n📊 数据已异步同步至多维表格。"
         requests.post(BOT_URL, json={"msg_type": "text", "content": {"text": msg_content}})
 
         # 4. CSV 备份
@@ -130,7 +130,7 @@ def background_full_submit(name, gender, birth_year, height, weight, location, j
         if os.path.exists(csv_file): df_new.to_csv(csv_file, mode='a', header=False, index=False, encoding='utf-8-sig')
         else: df_new.to_csv(csv_file, index=False, encoding='utf-8-sig')
     except Exception as e:
-        print(f"后台同步失败: {e}") # 这里的报错不会影响用户看到成功的界面
+        print(f"后台同步失败: {e}") 
 
 # --- 3. 提交逻辑 ---
 if submitted:
@@ -142,9 +142,9 @@ if submitted:
     elif not name or not wechat or not crush_points or not deal_breakers:
         st.error("⚠️ 请填写完整的必填项（带*的空格）哦！")
         
-    # 【新增】拦截3：严格校验中国大陆11位手机号格式
+    # 【已修改】拦截3：匹配报错文案
     elif not re.match(r"^1[3-9]\d{9}$", str(wechat)):
-        st.error("📱 请输入正确的 11 位大陆手机号码！这是我们为您匹配和防伪的唯一凭证哦~")
+        st.error("📱 请输入正确的 11 位手机号码（需微信同号）！这是我们为您匹配和防伪的唯一凭证哦~")
         
     # 拦截4：防刷单校验
     elif check_if_submitted_today(wechat):
@@ -152,14 +152,11 @@ if submitted:
         
     else:
         # ======= 核心改动：前台瞬间秒回，后台默默搬砖 =======
-        # 锁定状态
         st.session_state['has_submitted_successfully'] = True
         
-        # 瞬间展示气球和成功提示 (0毫秒延迟！)
         st.success("🎉 档案录入成功！红娘已接收到你的信息与现实底牌，请耐心等待匹配~")
         st.balloons()
         
-        # 将所有向飞书的网络请求打包，丢进后台子线程去执行
         threading.Thread(target=background_full_submit, args=(
             name, gender, birth_year, height, weight, location, job, work_style, 
             personality, hobbies, self_desc, crush_points, deal_breakers, 
