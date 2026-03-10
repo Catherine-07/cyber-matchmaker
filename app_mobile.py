@@ -81,7 +81,7 @@ with st.form("matchmaker_form"):
 
     st.subheader("🔒 六、 建立连接 (隐私保护)")
     # 【已修改】更贴近相亲场景的文案
-    wechat = st.text_input("联系方式 (备注：微信同号的手机号)*")
+    wechat = st.text_input("联系方式 (微信同号的手机号)*")
 
     submitted = st.form_submit_button("🚀 生成我的单身档案")
 
@@ -162,3 +162,4 @@ if submitted:
             personality, hobbies, self_desc, crush_points, deal_breakers, 
             family_bg, parents_pension, assets, income, wechat
         )).start()
+
