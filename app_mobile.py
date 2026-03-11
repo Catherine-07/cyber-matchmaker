@@ -7,7 +7,7 @@ import threading
 import re
 
 # ==========================================
-# 🔧 飞书核心配置区 
+# 🔧 核心配置区 
 # ==========================================
 APP_ID = "cli_a9253e6a3be6dbd1"
 APP_SECRET = "zLnbqkfszFKsRTjuH25JOdzqMbGQGZUO"
@@ -15,7 +15,10 @@ APP_TOKEN = "FS7YbPxt8auvIHsesIZcVN03nUh"
 TABLE_ID = "tbls07Rnv0sHsQoV"
 BOT_URL = "https://open.feishu.cn/open-apis/bot/v2/hook/3fa6624a-7839-4539-9569-98e17f009f42"
 
-# --- 1. 页面UI与基础配置（移动端极致优化） ---
+# 👨‍💻 开发者专属测试账号（跳过查重限制）
+DEV_PHONE = "17535889482"
+
+# --- 1. 页面UI与基础配置 ---
 st.set_page_config(page_title="赛博小红娘 | 助力城镇青年择偶", page_icon="💖", layout="centered")
 
 if 'has_submitted_successfully' not in st.session_state:
@@ -72,7 +75,6 @@ with st.form("matchmaker_form"):
     work_style = st.radio("工作节奏", ["早九晚五，周末双休", "偶尔加班，单休或大小周", "经常出差 / 工作很忙", "时间自由灵活"])
 
     st.subheader("🧩 三、 个人性格与生活爱好")
-    # ✅ 修改点 1：缩短 placeholder 适应手机屏幕，并将长段文字移入 help (小问号) 中
     personality = st.text_input(
         "性格类型（选填，推荐写MBTI）", 
         placeholder="如：INTJ / 开朗外向", 
@@ -102,13 +104,13 @@ with st.form("matchmaker_form"):
 def check_if_submitted_today(wx_id):
     try:
         auth_url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
-        token = requests.post(auth_url, json={"app_id": APP_ID, "app_secret": APP_SECRET}).json().get("tenant_access_token")
+        token = requests.post(auth_url, json={"app_id": APP_ID, "app_secret": APP_SECRET}, timeout=5).json().get("tenant_access_token")
         if not token: return False
 
         search_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{APP_TOKEN}/tables/{TABLE_ID}/records/search"
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
         payload = {"filter": {"conjunction": "and", "conditions": [{"field_name": "微信号", "operator": "is", "value": [str(wx_id)]}]}}
-        res = requests.post(search_url, headers=headers, json=payload).json()
+        res = requests.post(search_url, headers=headers, json=payload, timeout=5).json()
         
         items = res.get("data", {}).get("items", [])
         if items:
@@ -117,14 +119,14 @@ def check_if_submitted_today(wx_id):
                 if item.get("fields", {}).get("提交时间", 0) >= today_start_ts:
                     return True 
     except Exception as e:
-        pass
+        print(f"查重异常: {e}")
     return False
 
 # --- 后台异步提交 ---
 def background_full_submit(name, gender, birth_year, height, weight, location, job, work_style, personality, hobbies, self_desc, crush_points, deal_breakers, family_bg, parents_pension, assets, income, wechat):
     try:
         auth_url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
-        token = requests.post(auth_url, json={"app_id": APP_ID, "app_secret": APP_SECRET}).json().get("tenant_access_token")
+        token = requests.post(auth_url, json={"app_id": APP_ID, "app_secret": APP_SECRET}, timeout=5).json().get("tenant_access_token")
 
         write_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{APP_TOKEN}/tables/{TABLE_ID}/records"
         payload = {
@@ -136,14 +138,59 @@ def background_full_submit(name, gender, birth_year, height, weight, location, j
                 "微信号": wechat, "提交时间": int(datetime.datetime.now().timestamp() * 1000)
             }
         }
-        requests.post(write_url, headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}, json=payload)
+        requests.post(write_url, headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}, json=payload, timeout=5)
 
         msg_content = f"🔔 收到新档案！\n👤 {name} ({gender})\n🎂 {birth_year}年 | {height}cm | {weight}kg\n📍 {location} | 💼 {job}\n📞 联系方式: {wechat}"
-        requests.post(BOT_URL, json={"msg_type": "text", "content": {"text": msg_content}})
+        requests.post(BOT_URL, json={"msg_type": "text", "content": {"text": msg_content}}, timeout=5)
     except Exception as e:
         print(f"后台同步失败: {e}") 
 
 # --- 3. 提交逻辑 ---
 if submitted:
-    if st.session_state['has_submitted_successfully']:
-        st.warning("⚠️ 您刚刚已经成功提交过啦，无需重复点击哦！
+    try:
+        # ✅ 开发者特权：检测到特定手机号，清空前端成功防抖状态，允许无限次重复提交
+        if wechat == DEV_PHONE:
+            st.session_state['has_submitted_successfully'] = False
+
+        if st.session_state['has_submitted_successfully']:
+            st.warning("⚠️ 您刚刚已经成功提交过啦，无需重复点击哦！")
+            
+        elif not name or not wechat or not crush_points or not deal_breakers:
+            st.error("⚠️ 请填写完整的必填项（带*的空格）哦！")
+            
+        elif location_base == "其他（请手动键入）" and not location_other.strip():
+            st.error("⚠️ 您选择了“其他”地区，请在下方手动输入您的常驻地哦！")
+            
+        elif not re.match(r"^1[3-9]\d{9}$", str(wechat)):
+            st.error("📱 请输入正确的 11 位手机号码（需微信同号）！")
+            
+        else:
+            is_duplicate = False
+            # ✅ 开发者特权：跳过耗时的云端防刷单校验
+            if wechat != DEV_PHONE:
+                with st.spinner("🚀 正在验证信息并建立安全连接，请稍候..."):
+                    is_duplicate = check_if_submitted_today(wechat)
+                
+            if is_duplicate:
+                st.error(f"🛑 手机号 [{wechat}] 今天已经提交过档案啦！每人每天仅限提交一次。")
+            else:
+                st.session_state['has_submitted_successfully'] = True
+                st.balloons()
+                
+                # ✅ 开发者专属成功提示
+                if wechat == DEV_PHONE:
+                    st.success("👨‍💻 开发者模式触发：模拟录入成功！(已免除防刷单限制，您可以继续测试)")
+                else:
+                    st.success("🎉 档案录入成功！红娘已接收到你的信息与现实底牌，请耐心等待匹配~")
+                
+                final_location = location_other.strip() if location_base == "其他（请手动键入）" else location_base
+                threading.Thread(target=background_full_submit, args=(
+                    name, gender, birth_year, height, weight, final_location, job, work_style, 
+                    personality, hobbies, self_desc, crush_points, deal_breakers, 
+                    family_bg, parents_pension, assets, income, wechat
+                )).start()
+                
+    except Exception as e:
+        # 🛡️ 运行时全局中文保护：替代原生的全屏英文红字
+        st.error("🚨 抱歉，系统开小差了，请稍后再试。如果持续失败请截图联系红娘哦！")
+        print(f"运行异常: {e}")
