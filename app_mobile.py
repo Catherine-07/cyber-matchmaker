@@ -58,16 +58,26 @@ with st.form("matchmaker_form"):
     weight = st.number_input("体重 (公斤)", min_value=30, max_value=150, value=60)
 
     st.subheader("🌍 二、 居住地与工作状态")
-    # ✅ 修改点 1：拆分大区选择，并将兴县作为首选项重点提示
-    location_base = st.selectbox("目前常驻地（大区）*", ["吕梁市（重点：兴县及周边）", "太原市", "其他地区"])
-    # ✅ 修改点 2：增加手动输入框，专门“抓”住老乡
-    location_detail = st.text_input("详细位置（若是兴县老乡，请大声填出你的乡镇/街道！）")
+    # ✅ 修改点 1：按照飞书录入标准格式，将吕梁市细化到县级，并保留太原市和其他
+    location_options = [
+        "太原市",
+        "吕梁市-兴县", "吕梁市-离石区", "吕梁市-孝义市", "吕梁市-汾阳市", "吕梁市-文水县",
+        "吕梁市-交城县", "吕梁市-临县", "吕梁市-柳林县", "吕梁市-石楼县", "吕梁市-岚县",
+        "吕梁市-方山县", "吕梁市-中阳县", "吕梁市-交口县",
+        "其他（请手动键入）"
+    ]
+    # 默认选中第2个选项（吕梁市-兴县，索引为1）或者太原（索引为0），这里默认给太原
+    location_base = st.selectbox("目前常驻地*", location_options)
+    
+    # ✅ 修改点 2：为“其他”选项预留手动输入框（在 st.form 内部这是最佳兼容方案）
+    location_other = st.text_input("如果您选择了「其他」，请在此手动输入所在地区：", placeholder="例如：晋中市-榆次区")
     
     job = st.text_input("行业/职业（如：体制内/国企/个体户/自由职业等）")
     work_style = st.radio("工作节奏", ["早九晚五，周末双休", "偶尔加班，单休或大小周", "经常出差 / 工作很忙", "时间自由灵活"])
 
     st.subheader("🧩 三、 个人性格与生活爱好")
-    personality = st.text_input("性格类型（选填，如：开朗外向 / 稳重内向）")
+    # ✅ 修改点 3：增加 placeholder（占位符），提示MBTI和外向开朗
+    personality = st.text_input("性格类型（选填）", placeholder="例如：开朗外向，推荐填写 MBTI 类型如 INTJ、ENFP 等")
     hobbies = st.text_input("平时喜欢干什么？（如：爬山、看书、看剧、宅家打游戏）")
     self_desc = st.text_input("用3个词客观评价一下自己的性格")
 
@@ -173,9 +183,12 @@ if submitted:
     if st.session_state['has_submitted_successfully']:
         st.warning("⚠️ 您刚刚已经成功提交过啦，无需重复点击哦！")
         
-    # 拦截2：必填项校验
-    elif not name or not wechat or not crush_points or not deal_breakers:
-        st.error("⚠️ 请填写完整的必填项（带*的空格）哦！")
+    # ✅ 修改点 4：增加对“其他常驻地”非空的校验逻辑
+    elif not name or not wechat or not crush_points or not deal_breakers or (location_base == "其他（请手动键入）" and not location_other.strip()):
+        if location_base == "其他（请手动键入）" and not location_other.strip():
+            st.error("⚠️ 您选择了“其他”地区，请在下方手动输入您的常驻地哦！")
+        else:
+            st.error("⚠️ 请填写完整的必填项（带*的空格）哦！")
         
     # 拦截3：匹配手机号校验 (防乱填)
     elif not re.match(r"^1[3-9]\d{9}$", str(wechat)):
@@ -192,10 +205,10 @@ if submitted:
         st.success("🎉 档案录入成功！红娘已接收到你的信息与现实底牌，请耐心等待匹配~")
         st.balloons()
         
-        # ✅ 修改点 3：智能合并大区与详细地址，存入 final_location
-        final_location = f"{location_base} - {location_detail}" if location_detail.strip() else location_base
+        # ✅ 修改点 5：智能判断最终地址字段传值给飞书
+        final_location = location_other.strip() if location_base == "其他（请手动键入）" else location_base
         
-        # ✅ 修改点 4：将 final_location 传入后台线程（替换掉原来的 location）
+        # 抛出异步线程写入飞书
         threading.Thread(target=background_full_submit, args=(
             name, gender, birth_year, height, weight, final_location, job, work_style, 
             personality, hobbies, self_desc, crush_points, deal_breakers, 
