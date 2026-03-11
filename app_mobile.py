@@ -58,7 +58,11 @@ with st.form("matchmaker_form"):
     weight = st.number_input("体重 (公斤)", min_value=30, max_value=150, value=60)
 
     st.subheader("🌍 二、 居住地与工作状态")
-    location = st.selectbox("目前常驻地*", ["太原市（细化到区请在下方补充）", "吕梁市（兴县周边）", "其他（请补充）"])
+    # ✅ 修改点 1：拆分大区选择，并将兴县作为首选项重点提示
+    location_base = st.selectbox("目前常驻地（大区）*", ["吕梁市（重点：兴县及周边）", "太原市", "其他地区"])
+    # ✅ 修改点 2：增加手动输入框，专门“抓”住老乡
+    location_detail = st.text_input("详细位置（若是兴县老乡，请大声填出你的乡镇/街道！）")
+    
     job = st.text_input("行业/职业（如：体制内/国企/个体户/自由职业等）")
     work_style = st.radio("工作节奏", ["早九晚五，周末双休", "偶尔加班，单休或大小周", "经常出差 / 工作很忙", "时间自由灵活"])
 
@@ -188,8 +192,12 @@ if submitted:
         st.success("🎉 档案录入成功！红娘已接收到你的信息与现实底牌，请耐心等待匹配~")
         st.balloons()
         
+        # ✅ 修改点 3：智能合并大区与详细地址，存入 final_location
+        final_location = f"{location_base} - {location_detail}" if location_detail.strip() else location_base
+        
+        # ✅ 修改点 4：将 final_location 传入后台线程（替换掉原来的 location）
         threading.Thread(target=background_full_submit, args=(
-            name, gender, birth_year, height, weight, location, job, work_style, 
+            name, gender, birth_year, height, weight, final_location, job, work_style, 
             personality, hobbies, self_desc, crush_points, deal_breakers, 
             family_bg, parents_pension, assets, income, wechat
         )).start()
