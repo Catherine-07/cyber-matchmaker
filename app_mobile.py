@@ -7,7 +7,7 @@ import threading
 import re
 
 # ==========================================
-# 🔧 飞书核心配置区 (密码已全部集齐并填入)
+# 🔧 飞书核心配置区 
 # ==========================================
 APP_ID = "cli_a9253e6a3be6dbd1"
 APP_SECRET = "zLnbqkfszFKsRTjuH25JOdzqMbGQGZUO"
@@ -58,7 +58,6 @@ with st.form("matchmaker_form"):
     weight = st.number_input("体重 (公斤)", min_value=30, max_value=150, value=60)
 
     st.subheader("🌍 二、 居住地与工作状态")
-    # ✅ 修改点 1：按照飞书录入标准格式，将吕梁市细化到县级，并保留太原市和其他
     location_options = [
         "太原市",
         "吕梁市-兴县", "吕梁市-离石区", "吕梁市-孝义市", "吕梁市-汾阳市", "吕梁市-文水县",
@@ -66,19 +65,20 @@ with st.form("matchmaker_form"):
         "吕梁市-方山县", "吕梁市-中阳县", "吕梁市-交口县",
         "其他（请手动键入）"
     ]
-    # 默认选中第2个选项（吕梁市-兴县，索引为1）或者太原（索引为0），这里默认给太原
     location_base = st.selectbox("目前常驻地*", location_options)
-    
-    # ✅ 修改点 2：为“其他”选项预留手动输入框（在 st.form 内部这是最佳兼容方案）
     location_other = st.text_input("如果您选择了「其他」，请在此手动输入所在地区：", placeholder="例如：晋中市-榆次区")
     
     job = st.text_input("行业/职业（如：体制内/国企/个体户/自由职业等）")
     work_style = st.radio("工作节奏", ["早九晚五，周末双休", "偶尔加班，单休或大小周", "经常出差 / 工作很忙", "时间自由灵活"])
 
     st.subheader("🧩 三、 个人性格与生活爱好")
-    # ✅ 修改点 3：增加 placeholder（占位符），提示MBTI和外向开朗
-    personality = st.text_input("性格类型（选填）", placeholder="例如：开朗外向，推荐填写 MBTI 类型如 INTJ、ENFP 等")
-    hobbies = st.text_input("平时喜欢干什么？（如：爬山、看书、看剧、宅家打游戏）")
+    # ✅ 修改点 1：缩短 placeholder 适应手机屏幕，并将长段文字移入 help (小问号) 中
+    personality = st.text_input(
+        "性格类型（选填，推荐写MBTI）", 
+        placeholder="如：INTJ / 开朗外向", 
+        help="建议填写您的 MBTI（如：INTJ、ENFP），或者使用传统词汇（如：开朗外向、沉稳内向）"
+    )
+    hobbies = st.text_input("平时喜欢干什么？（如：爬山、看书、宅家打游戏）")
     self_desc = st.text_input("用3个词客观评价一下自己的性格")
 
     st.subheader("🎯 四、 核心匹配逻辑 (你的择偶标准)")
@@ -89,7 +89,7 @@ with st.form("matchmaker_form"):
     st.markdown("*💡 爱情需要浪漫，婚姻需要落地。真实的现实底牌，是建立信任的第一步。*")
 
     family_bg = st.selectbox("原生家庭情况*", ["独生子女，家庭和睦", "非独生，有兄弟姐妹", "单亲/重组家庭", "其他"])
-    parents_pension = st.selectbox("父母养老状态（选填，帮助评估未来压力）", ["父母均有退休金/医保", "部分有保障", "体制外/无退休金，需要较多支持", "暂不方便透露"])
+    parents_pension = st.selectbox("父母养老状态（选填）", ["父母均有退休金/医保", "部分有保障", "体制外/无保障，需较多支持", "暂不方便透露"])
     assets = st.selectbox("房车资产情况*", ["已有独立住房和车", "有房无车 / 有车无房", "暂无，但有明确购房/购车计划", "暂无，随缘打拼", "保密（后续与红娘私聊）"])
     income = st.selectbox("目前年收入水平 (仅红娘可见)*", ["5万以下", "5万 - 10万", "10万 - 20万", "20万以上", "自由职业/收入浮动较大"])
 
@@ -98,59 +98,34 @@ with st.form("matchmaker_form"):
 
     submitted = st.form_submit_button("🚀 生成我的单身档案")
 
-# --- 【已升级】直接去飞书多维表格云端校验 (绝对防漏) ---
+# --- 飞书云端校验 ---
 def check_if_submitted_today(wx_id):
     try:
-        # 1. 获取飞书 Token
         auth_url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
         token = requests.post(auth_url, json={"app_id": APP_ID, "app_secret": APP_SECRET}).json().get("tenant_access_token")
-        
         if not token: return False
 
-        # 2. 调用飞书“搜索记录”API，精准查找这个手机号
         search_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{APP_TOKEN}/tables/{TABLE_ID}/records/search"
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-        
-        payload = {
-            "filter": {
-                "conjunction": "and",
-                "conditions": [
-                    {
-                        "field_name": "微信号", 
-                        "operator": "is", 
-                        "value": [str(wx_id)]
-                    }
-                ]
-            }
-        }
+        payload = {"filter": {"conjunction": "and", "conditions": [{"field_name": "微信号", "operator": "is", "value": [str(wx_id)]}]}}
         res = requests.post(search_url, headers=headers, json=payload).json()
         
-        # 3. 如果找到了，检查是不是今天提交的
         items = res.get("data", {}).get("items", [])
         if items:
-            # 获取今天凌晨 0 点的时间戳（毫秒）
-            today_start = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-            today_start_ts = int(today_start.timestamp() * 1000)
-            
+            today_start_ts = int(datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000)
             for item in items:
-                submit_time = item.get("fields", {}).get("提交时间", 0)
-                # 如果记录的提交时间大于今天凌晨 0 点，说明今天交过
-                if submit_time >= today_start_ts:
+                if item.get("fields", {}).get("提交时间", 0) >= today_start_ts:
                     return True 
-                    
     except Exception as e:
-        print(f"飞书云端校验失败: {e}") 
-        
+        pass
     return False
 
-# --- 全后台异步处理函数（完全不阻挡前端动画） ---
+# --- 后台异步提交 ---
 def background_full_submit(name, gender, birth_year, height, weight, location, job, work_style, personality, hobbies, self_desc, crush_points, deal_breakers, family_bg, parents_pension, assets, income, wechat):
     try:
-        # 1. 拿 Token
         auth_url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
         token = requests.post(auth_url, json={"app_id": APP_ID, "app_secret": APP_SECRET}).json().get("tenant_access_token")
 
-        # 2. 写入飞书表格 (注意：虽然前端叫联系方式，后台依然写入"微信号"列保持兼容)
         write_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{APP_TOKEN}/tables/{TABLE_ID}/records"
         payload = {
             "fields": {
@@ -163,54 +138,12 @@ def background_full_submit(name, gender, birth_year, height, weight, location, j
         }
         requests.post(write_url, headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}, json=payload)
 
-        # 3. 飞书机器人通知
-        msg_content = f"🔔 收到新档案！\n👤 {name} ({gender})\n🎂 {birth_year}年 | {height}cm | {weight}kg\n📍 {location} | 💼 {job}\n📞 联系方式: {wechat}\n📊 数据已异步同步至多维表格。"
+        msg_content = f"🔔 收到新档案！\n👤 {name} ({gender})\n🎂 {birth_year}年 | {height}cm | {weight}kg\n📍 {location} | 💼 {job}\n📞 联系方式: {wechat}"
         requests.post(BOT_URL, json={"msg_type": "text", "content": {"text": msg_content}})
-
-        # 4. CSV 备份
-        new_data = payload["fields"].copy()
-        new_data["提交时间"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        df_new = pd.DataFrame([new_data])
-        csv_file = "cyber_matchmaker_database.csv"
-        if os.path.exists(csv_file): df_new.to_csv(csv_file, mode='a', header=False, index=False, encoding='utf-8-sig')
-        else: df_new.to_csv(csv_file, index=False, encoding='utf-8-sig')
     except Exception as e:
         print(f"后台同步失败: {e}") 
 
 # --- 3. 提交逻辑 ---
 if submitted:
-    # 拦截1：页面防抖拦截
     if st.session_state['has_submitted_successfully']:
-        st.warning("⚠️ 您刚刚已经成功提交过啦，无需重复点击哦！")
-        
-    # ✅ 修改点 4：增加对“其他常驻地”非空的校验逻辑
-    elif not name or not wechat or not crush_points or not deal_breakers or (location_base == "其他（请手动键入）" and not location_other.strip()):
-        if location_base == "其他（请手动键入）" and not location_other.strip():
-            st.error("⚠️ 您选择了“其他”地区，请在下方手动输入您的常驻地哦！")
-        else:
-            st.error("⚠️ 请填写完整的必填项（带*的空格）哦！")
-        
-    # 拦截3：匹配手机号校验 (防乱填)
-    elif not re.match(r"^1[3-9]\d{9}$", str(wechat)):
-        st.error("📱 请输入正确的 11 位手机号码（需微信同号）！这是我们为您匹配和防伪的唯一凭证哦~")
-        
-    # 【已升级】拦截4：飞书云端防刷单校验
-    elif check_if_submitted_today(wechat):
-        st.error(f"🛑 手机号 [{wechat}] 今天已经提交过档案啦！每人每天仅限提交一次。")
-        
-    else:
-        # ======= 核心改动：前台瞬间秒回，后台默默搬砖 =======
-        st.session_state['has_submitted_successfully'] = True
-        
-        st.success("🎉 档案录入成功！红娘已接收到你的信息与现实底牌，请耐心等待匹配~")
-        st.balloons()
-        
-        # ✅ 修改点 5：智能判断最终地址字段传值给飞书
-        final_location = location_other.strip() if location_base == "其他（请手动键入）" else location_base
-        
-        # 抛出异步线程写入飞书
-        threading.Thread(target=background_full_submit, args=(
-            name, gender, birth_year, height, weight, final_location, job, work_style, 
-            personality, hobbies, self_desc, crush_points, deal_breakers, 
-            family_bg, parents_pension, assets, income, wechat
-        )).start()
+        st.warning("⚠️ 您刚刚已经成功提交过啦，无需重复点击哦！
